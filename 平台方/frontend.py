@@ -1,0 +1,732 @@
+"""
+前端界面模块
+提供可视化的游戏管理界面
+"""
+from flask import Flask, render_template_string, jsonify
+import os
+import requests
+import threading
+import time
+from datetime import datetime
+
+# 前端服务器（用于展示界面）
+frontend_app = Flask(__name__)
+
+# 后端API地址
+BACKEND_URL = "http://127.0.0.1:5000"
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "host-secret")
+ADMIN_HEADERS = {'X-Admin-Token': ADMIN_TOKEN}
+
+
+def get_backend_data(endpoint, use_admin=False):
+    """从后端获取数据"""
+    try:
+        headers = ADMIN_HEADERS if use_admin else None
+        response = requests.get(f"{BACKEND_URL}{endpoint}", headers=headers, timeout=2)
+        return response.json()
+    except:
+        return None
+
+
+def post_backend_data(endpoint, data):
+    """向后端发送POST请求"""
+    try:
+        response = requests.post(f"{BACKEND_URL}{endpoint}", json=data, timeout=2)
+        return response.json()
+    except:
+        return None
+
+
+# HTML模板
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>谁是卧底 - 主持方平台</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            padding: 30px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        .section h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: bold;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 15px;
+            background: #e3f2fd;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        .status-item {
+            margin: 5px 0;
+            color: #333;
+        }
+        .groups-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .group-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #ddd;
+        }
+        .group-card.undercover {
+            border-color: #f44336;
+            background: #ffebee;
+        }
+        .group-card.civilian {
+            border-color: #4caf50;
+            background: #e8f5e9;
+        }
+        .group-card.eliminated {
+            opacity: 0.5;
+            text-decoration: line-through;
+        }
+        .descriptions {
+            margin-top: 15px;
+        }
+        .description-item {
+            background: white;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border-left: 4px solid #667eea;
+        }
+        .description-item .group-name {
+            font-weight: bold;
+            color: #667eea;
+        }
+        .description-item .time {
+            color: #999;
+            font-size: 0.9em;
+        }
+        .reports {
+            margin-top: 15px;
+        }
+        .report-item {
+            background: white;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border-left: 4px solid #ff9800;
+        }
+        .report-item .ticket {
+            font-weight: bold;
+            color: #ff9800;
+        }
+        .report-item .time {
+            color: #999;
+            font-size: 0.9em;
+        }
+        .vote-result {
+            margin-top: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 5px;
+        }
+        .vote-item {
+            margin: 5px 0;
+            padding: 5px;
+            background: #f5f5f5;
+        }
+        .scores {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .score-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 2px solid #667eea;
+        }
+        .score-value {
+            font-size: 2em;
+            color: #667eea;
+            font-weight: bold;
+        }
+        .message {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .message.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .message.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 谁是卧底 - 主持方平台</h1>
+        
+        <!-- 游戏控制区域 -->
+        <div class="section">
+            <h2>游戏控制</h2>
+            <div class="form-group">
+                <label>卧底词：</label>
+                <input type="text" id="undercover-word" placeholder="输入卧底词">
+            </div>
+            <div class="form-group">
+                <label>平民词：</label>
+                <input type="text" id="civilian-word" placeholder="输入平民词">
+            </div>
+            <button onclick="startGame()">开始游戏</button>
+            <button onclick="startRound()">开始新回合</button>
+            <button onclick="processVoting()">处理投票结果</button>
+            <button onclick="resetGame()">重置游戏</button>
+        </div>
+        
+        <!-- 游戏状态 -->
+        <div class="section">
+            <h2>游戏状态</h2>
+            <div class="status" id="game-status">
+                <div class="status-item">状态：等待注册</div>
+                <div class="status-item">当前回合：0</div>
+                <div class="status-item">已注册组数：0</div>
+            </div>
+        </div>
+        
+        <!-- 注册的组 -->
+        <div class="section">
+            <h2>已注册的组</h2>
+            <div class="groups-list" id="groups-list"></div>
+        </div>
+        
+        <!-- 描述展示 -->
+        <div class="section">
+            <h2>当前回合描述</h2>
+            <div class="descriptions" id="descriptions"></div>
+        </div>
+        
+        <!-- 投票结果 -->
+        <div class="section">
+            <h2>投票结果</h2>
+            <div class="vote-result" id="vote-result"></div>
+        </div>
+
+        <!-- 异常上报 -->
+        <div class="section">
+            <h2>异常上报</h2>
+            <div class="reports" id="reports"></div>
+        </div>
+        
+        <!-- 得分 -->
+        <div class="section">
+            <h2>得分</h2>
+            <div class="scores" id="scores"></div>
+        </div>
+    </div>
+    
+    <script>
+        // 自动刷新游戏状态
+        setInterval(updateGameState, 2000);
+        updateGameState();
+        
+        function updateGameState() {
+            fetch('/api/game/state')
+                .then(response => response.json())
+                .then(resp => {
+                    if (resp && resp.code === 200) {
+                        const data = resp.data || {};
+                        updateStatus(data);
+                        updateGroups(data);
+                        updateDescriptions(data);
+                        updateVotes(data);  // 添加实时投票显示
+                        updateReports(data);
+                        updateScores(data);
+                    } else {
+                        console.error('状态刷新失败：', resp ? resp.message : '未知错误');
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+        
+        function updateStatus(data) {
+            const statusDiv = document.getElementById('game-status');
+            const statusMap = {
+                'waiting': '等待注册',
+                'registered': '已注册',
+                'word_assigned': '词语已分配',
+                'describing': '描述阶段',
+                'voting': '投票阶段',
+                'round_end': '回合结束',
+                'game_end': '游戏结束'
+            };
+            statusDiv.innerHTML = `
+                <div class="status-item">状态：${statusMap[data.status] || data.status}</div>
+                <div class="status-item">当前回合：${data.current_round || 0}</div>
+                <div class="status-item">已注册组数：${Object.keys(data.groups || {}).length}</div>
+                ${data.undercover_group ? `<div class="status-item">卧底组：${data.undercover_group}</div>` : ''}
+            `;
+        }
+        
+        function updateGroups(data) {
+            const groupsList = document.getElementById('groups-list');
+            if (!data.groups) {
+                groupsList.innerHTML = '<p>暂无注册的组</p>';
+                return;
+            }
+            
+            let html = '';
+            for (const [name, info] of Object.entries(data.groups)) {
+                const role = info.role || 'unknown';
+                const eliminated = info.eliminated || false;
+                html += `
+                    <div class="group-card ${role} ${eliminated ? 'eliminated' : ''}">
+                        <div><strong>${name}</strong></div>
+                        <div>${role === 'undercover' ? '卧底' : role === 'civilian' ? '平民' : '未知'}</div>
+                        ${eliminated ? '<div style="color: red;">已淘汰</div>' : ''}
+                    </div>
+                `;
+            }
+            groupsList.innerHTML = html;
+        }
+        
+        function updateDescriptions(data) {
+            const descDiv = document.getElementById('descriptions');
+            const allDescriptions = data.descriptions || {};
+            const rounds = Object.keys(allDescriptions);
+            if (rounds.length === 0) {
+                descDiv.innerHTML = '<p>暂无描述</p>';
+                return;
+            }
+
+            const numericRounds = rounds.map(r => parseInt(r, 10)).sort((a, b) => b - a);
+            let displayRound = null;
+            for (const roundKey of numericRounds) {
+                if (allDescriptions[roundKey] && allDescriptions[roundKey].length > 0) {
+                    displayRound = roundKey;
+                    break;
+                }
+            }
+
+            if (displayRound === null) {
+                displayRound = numericRounds[0];
+            }
+
+            const roundDescriptions = allDescriptions[displayRound] || [];
+            if (roundDescriptions.length === 0) {
+                descDiv.innerHTML = `<p>第 ${displayRound} 回合暂无描述</p>`;
+                return;
+            }
+
+            let html = '';
+            html += `<div class="status-item">展示第 ${displayRound} 回合</div>`;
+            for (const desc of roundDescriptions) {
+                const time = new Date(desc.time).toLocaleTimeString('zh-CN');
+                html += `
+                    <div class="description-item">
+                        <div class="group-name">${desc.group}</div>
+                        <div>${desc.description}</div>
+                        <div class="time">${time}</div>
+                    </div>
+                `;
+            }
+            descDiv.innerHTML = html;
+        }
+
+        function updateVotes(data) {
+            const voteDiv = document.getElementById('vote-result');
+            const allVotes = data.votes || {};
+            const currentRound = data.current_round || 0;
+            const activeGroups = data.describe_order || [];
+            const eliminatedGroups = data.eliminated_groups || [];
+            const lastVoteResult = data.last_vote_result || null;
+            
+            // 如果有处理后的投票结果，优先显示处理后的结果
+            if (lastVoteResult && lastVoteResult.round === currentRound) {
+                let html = '';
+                html += `<div class="status-item" style="margin-bottom: 10px;"><strong>第 ${currentRound} 回合投票结果（已处理）</strong></div>`;
+                
+                // 显示投票详情
+                const roundVotes = allVotes[currentRound] || {};
+                if (Object.keys(roundVotes).length > 0) {
+                    html += '<div style="margin-bottom: 10px;"><strong>投票详情：</strong></div>';
+                    for (const [voter, target] of Object.entries(roundVotes)) {
+                        html += `<div class="vote-item">${voter} → ${target}</div>`;
+                    }
+                }
+                
+                // 显示得票统计
+                html += '<div style="margin-top: 15px; margin-bottom: 10px;"><strong>得票统计：</strong></div>';
+                const voteCount = lastVoteResult.vote_count || {};
+                const sortedVotes = Object.entries(voteCount).sort((a, b) => b[1] - a[1]);
+                for (const [group, count] of sortedVotes) {
+                    html += `<div class="vote-item">${group}: ${count}票</div>`;
+                }
+                
+                // 显示淘汰信息
+                if (lastVoteResult.eliminated && lastVoteResult.eliminated.length > 0) {
+                    html += `<div style="margin-top: 15px; color: red; font-weight: bold;">淘汰：${lastVoteResult.eliminated.join(', ')}</div>`;
+                }
+                
+                // 显示游戏结束信息
+                if (lastVoteResult.game_ended) {
+                    const winner = lastVoteResult.winner === 'undercover' ? '卧底' : '平民';
+                    html += `<div style="margin-top: 15px; color: #4caf50; font-weight: bold; font-size: 1.2em;">游戏结束！获胜方：${winner}</div>`;
+                }
+                
+                voteDiv.innerHTML = html;
+                return;
+            }
+            
+            // 如果没有处理后的结果，显示实时投票进度
+            const roundVotes = allVotes[currentRound] || {};
+            
+            // 如果没有投票数据，显示提示
+            if (Object.keys(roundVotes).length === 0) {
+                if (data.status === 'voting') {
+                    voteDiv.innerHTML = '<p style="color: #999;">等待投票中...</p>';
+                } else {
+                    voteDiv.innerHTML = '<p>暂无投票数据</p>';
+                }
+                return;
+            }
+            
+            // 计算投票统计
+            const voteCount = {};
+            for (const [voter, target] of Object.entries(roundVotes)) {
+                voteCount[target] = (voteCount[target] || 0) + 1;
+            }
+            
+            // 找出活跃组中还未投票的组
+            const activeGroupsNotEliminated = activeGroups.filter(g => !eliminatedGroups.includes(g));
+            const votedGroups = Object.keys(roundVotes);
+            const notVotedGroups = activeGroupsNotEliminated.filter(g => !votedGroups.includes(g));
+            
+            let html = '';
+            html += `<div class="status-item" style="margin-bottom: 10px;"><strong>第 ${currentRound} 回合投票情况（进行中）</strong></div>`;
+            
+            // 显示投票详情（谁投了谁）
+            html += '<div style="margin-bottom: 10px;"><strong>投票详情：</strong></div>';
+            for (const [voter, target] of Object.entries(roundVotes)) {
+                html += `<div class="vote-item">${voter} → ${target}</div>`;
+            }
+            
+            // 显示投票统计
+            html += '<div style="margin-top: 15px; margin-bottom: 10px;"><strong>得票统计：</strong></div>';
+            const sortedVotes = Object.entries(voteCount).sort((a, b) => b[1] - a[1]);
+            for (const [group, count] of sortedVotes) {
+                html += `<div class="vote-item">${group}: ${count}票</div>`;
+            }
+            
+            // 显示未投票的组
+            if (notVotedGroups.length > 0) {
+                html += `<div style="margin-top: 15px; color: #ff9800;"><strong>未投票：</strong>${notVotedGroups.join(', ')}</div>`;
+            } else if (data.status === 'voting') {
+                html += `<div style="margin-top: 15px; color: #4caf50;"><strong>✓ 所有组已完成投票，请点击"处理投票结果"按钮</strong></div>`;
+            }
+            
+            voteDiv.innerHTML = html;
+        }
+
+        function updateReports(data) {
+            const reportsDiv = document.getElementById('reports');
+            const reports = data.reports || [];
+            if (reports.length === 0) {
+                reportsDiv.innerHTML = '<p>暂无异常上报</p>';
+                return;
+            }
+
+            const latestReports = reports.slice(-10).reverse();
+            let html = '';
+            for (const report of latestReports) {
+                const time = new Date(report.time).toLocaleTimeString('zh-CN');
+                html += `
+                    <div class="report-item">
+                        <div class="ticket">${report.ticket}</div>
+                        <div>组：${report.group}</div>
+                        <div>类型：${report.type}</div>
+                        <div>${report.detail}</div>
+                        <div class="time">${time}</div>
+                    </div>
+                `;
+            }
+            reportsDiv.innerHTML = html;
+        }
+        
+        function updateScores(data) {
+            const scoresDiv = document.getElementById('scores');
+            if (!data.scores || Object.keys(data.scores).length === 0) {
+                scoresDiv.innerHTML = '<p>暂无得分</p>';
+                return;
+            }
+            
+            let html = '';
+            for (const [group, score] of Object.entries(data.scores)) {
+                html += `
+                    <div class="score-card">
+                        <div>${group}</div>
+                        <div class="score-value">${score}</div>
+                    </div>
+                `;
+            }
+            scoresDiv.innerHTML = html;
+        }
+        
+        function startGame() {
+            const undercoverWord = document.getElementById('undercover-word').value;
+            const civilianWord = document.getElementById('civilian-word').value;
+            
+            if (!undercoverWord || !civilianWord) {
+                alert('请输入卧底词和平民词');
+                return;
+            }
+            
+            fetch('/api/game/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    undercover_word: undercoverWord,
+                    civilian_word: civilianWord
+                })
+            })
+            .then(response => response.json())
+            .then(resp => {
+                if (resp && resp.code === 200) {
+                    alert(resp.message || '游戏已开始！');
+                    updateGameState();
+                } else {
+                    alert('错误：' + (resp ? resp.message : '后端无响应'));
+                }
+            })
+            .catch(error => {
+                alert('请求失败：' + error);
+            });
+        }
+        
+        function startRound() {
+            fetch('/api/game/round/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            })
+            .then(response => response.json())
+            .then(resp => {
+                if (resp && resp.code === 200) {
+                    const payload = resp.data || {};
+                    const orderText = payload.order ? ` 顺序：${payload.order.join(' -> ')}` : '';
+                    alert((resp.message || '回合已开始！') + orderText);
+                    updateGameState();
+                } else {
+                    alert('错误：' + (resp ? resp.message : '后端无响应'));
+                }
+            })
+            .catch(error => {
+                alert('请求失败：' + error);
+            });
+        }
+        
+        function processVoting() {
+            fetch('/api/game/voting/process', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            })
+            .then(response => response.json())
+            .then(resp => {
+                if (resp && resp.code === 200) {
+                    const data = resp.data || {};
+                    let message = '投票结果：\\n';
+                    message += '得票统计：' + JSON.stringify(data.vote_count || {}) + '\\n';
+                    if (data.eliminated && data.eliminated.length > 0) {
+                        message += '淘汰：' + data.eliminated.join(', ') + '\\n';
+                    }
+                    if (data.game_ended) {
+                        message += '游戏结束！获胜方：' + (data.winner === 'undercover' ? '卧底' : '平民');
+                    }
+                    alert(message);
+                    
+                    // 刷新游戏状态，updateVotes会自动显示处理后的结果
+                    updateGameState();
+                } else {
+                    alert('错误：' + (resp ? resp.message : '后端无响应'));
+                }
+            })
+            .catch(error => {
+                alert('请求失败：' + error);
+            });
+        }
+        
+        function resetGame() {
+            if (confirm('确定要重置游戏吗？')) {
+                fetch('/api/game/reset', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                })
+                .then(response => response.json())
+                .then(resp => {
+                    if (resp && resp.code === 200) {
+                        alert(resp.message || '游戏已重置');
+                        // 清空输入框
+                        document.getElementById('undercover-word').value = '';
+                        document.getElementById('civilian-word').value = '';
+                        // 清空显示区域
+                        document.getElementById('vote-result').innerHTML = '';
+                        document.getElementById('descriptions').innerHTML = '<p>暂无描述</p>';
+                        updateGameState();
+                    } else {
+                        alert('错误：' + (resp ? resp.message : '后端无响应'));
+                    }
+                })
+                .catch(error => {
+                    alert('请求失败：' + error);
+                });
+            }
+        }
+    </script>
+</body>
+</html>
+"""
+
+
+@frontend_app.route('/')
+def index():
+    """主页面"""
+    return render_template_string(HTML_TEMPLATE)
+
+
+@frontend_app.route('/api/game/state')
+def api_game_state():
+    """代理后端API"""
+    data = get_backend_data('/api/game/state', use_admin=True)
+    if data is None:
+        return jsonify({"code": 500, "message": "后端状态接口无响应", "data": {}}), 500
+    return jsonify(data)
+
+
+@frontend_app.route('/api/game/start', methods=['POST'])
+def api_start_game():
+    """代理后端API"""
+    from flask import request
+    data = request.json
+    response = requests.post(
+        f"{BACKEND_URL}/api/game/start",
+        json=data,
+        headers=ADMIN_HEADERS,
+        timeout=2
+    )
+    return jsonify(response.json()), response.status_code
+
+
+@frontend_app.route('/api/game/round/start', methods=['POST'])
+def api_start_round():
+    """代理后端API"""
+    response = requests.post(
+        f"{BACKEND_URL}/api/game/round/start",
+        headers=ADMIN_HEADERS,
+        timeout=2
+    )
+    return jsonify(response.json()), response.status_code
+
+
+@frontend_app.route('/api/game/voting/process', methods=['POST'])
+def api_process_voting():
+    """代理后端API"""
+    response = requests.post(
+        f"{BACKEND_URL}/api/game/voting/process",
+        headers=ADMIN_HEADERS,
+        timeout=2
+    )
+    return jsonify(response.json()), response.status_code
+
+
+@frontend_app.route('/api/game/reset', methods=['POST'])
+def api_reset_game():
+    """代理后端API"""
+    response = requests.post(
+        f"{BACKEND_URL}/api/game/reset",
+        headers=ADMIN_HEADERS,
+        timeout=2
+    )
+    return jsonify(response.json()), response.status_code
+
+
+if __name__ == '__main__':
+    print("=" * 50)
+    print("前端界面服务器启动中...")
+    print("访问地址: http://127.0.0.1:5001")
+    print("=" * 50)
+    print("注意：请确保后端服务器(backend.py)已启动")
+    print("=" * 50)
+    
+    # 前端服务器运行在5001端口
+    frontend_app.run(host='0.0.0.0', port=5001, debug=True)
+
